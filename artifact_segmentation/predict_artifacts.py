@@ -6,20 +6,25 @@ import cv2
 from tensorflow.keras import models
 import argparse
 from tqdm import tqdm
-
-IMG_W = 2886
-IMG_H = 2886
-
-win_w = 481
-win_h = 481
-
-scaled_win_w = 384
-scaled_win_h = 384
-
-num_win_x = IMG_W/win_w
-num_win_y = IMG_H/win_h
+import json
 
 if __name__ == '__main__':
+
+    #Read configuration file
+    with open('config.json') as f:
+        config = json.load(f)
+
+    IMG_W = config['image_width']
+    IMG_H = config['image_height']
+
+    win_w = config['window_width']
+    win_h = config['window_height']
+
+    scaled_win_w = config['model_input_width']
+    scaled_win_h = config['model_input_height']
+
+    num_win_x = IMG_W/win_w
+    num_win_y = IMG_H/win_h
 
     ap = argparse.ArgumentParser()
     ap.add_argument('-i','--images', type=str, required=True, help='path to image dataset')
