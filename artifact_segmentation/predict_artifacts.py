@@ -23,6 +23,11 @@ if __name__ == '__main__':
     scaled_win_w = config['model_input_width']
     scaled_win_h = config['model_input_height']
 
+    padding = config['padding']
+
+    padless_win_w = scaled_win_w-2*padding
+    padless_win_h = scaled_win_h-2*padding
+
     num_win_x = IMG_W/win_w
     num_win_y = IMG_H/win_h
 
@@ -35,6 +40,7 @@ if __name__ == '__main__':
     model = models.load_model(args['model_path'])
 
     img_names = os.listdir(args['images'])
+    
 
     #Data Collection
     for img_name in tqdm(img_names, desc='Generating Masks'):
@@ -47,19 +53,16 @@ if __name__ == '__main__':
         img = cv2.imread(img_path)
 
         #Create image patches
-        x_count = 0
-        y_count = 0
+        cols = np.arange(0, num_win_x*win_w, win_w)
+        rows = np.arange(0, num_win_y*win_h, win_h)
+        for row in rows:
+            for col in cols:
+                win_img = img[col:col+win_w,row:row+win_w,:]/255.0
 
-        for i in range(num_win_y):
-            for j in range(num_win_x):
-                win_img = img[y_count*win_h:(y_count+1)*win_h,x_count*win_w:(x_count+1)*win_w,:]/255.0
-                
-                scaled_win_img = cv2.resize(win_img, (scaled_win_w, scaled_win_h))
-                
+                padless_win_img = cv2.resize(win_img, (padless_win_w, padless_win_h))
+                scaled_win_img = cv2.copyMakeBorder( padless_win_img, padding, padding, padding, padding, cv2.BORDER_REPLICATE)
+        
                 X.append(scaled_win_img)
-                y_count+=1
-            x_count+=1
-            y_count=0
     
         X = np.asarray(X)
 
@@ -67,21 +70,18 @@ if __name__ == '__main__':
         y = model.predict(X)
 
         #Create mask
-        mask = np.zeros((IMG_W, IMG_H))
+        mask = np.zeros((num_win_x*padless_win_w, num_win_y*padless_win_h))
 
-        #build output mask
-        x_count=0
-        y_count=0
-        for i in range(num_win_y):
-            for j in range(num_win_x):
-                patch = y[(i*6)+j]*255
-                scaled_patch = cv2.resize(patch, (win_w, win_h)) #scale back up to size
-                scaled_patch = np.reshape(scaled_patch, (win_w, win_h)) #remove last dimension
+        cols = np.arange(0, num_win_x*padless_win_w, padless_win_w)
+        rows = np.arange(0, num_win_y*padless_win_h, padless_win_h)
 
-                mask[y_count*win_h:(y_count+1)*win_h,x_count*win_w:(x_count+1)*win_w] = scaled_patch
-                y_count+=1
-            x_count+=1
-            y_count=0
+        for i in range(len(rows)):
+            for j in range(len(cols)):
+                patch = y[(i*6)+j][padding:-padding,padding:-padding] #remove padding
+                patch = np.reshape(patch, (padless_win_w, padless_win_h)) #remove last dimension
+
+                mask[cols[j]:cols[j]+padless_win_h,rows[i]:rows[i]+padless_win_w] = patch*255
 
         mask_path = os.path.join(args['output_folder'],img_name.split('.')[0] + '_mask.jpg')
-        cv2.imwrite(mask_path, mask)
+        resized_mask = cv2.resize(mask, (IMG_W, IMG_H))
+        cv2.imwrite(mask_path, resized_mask)

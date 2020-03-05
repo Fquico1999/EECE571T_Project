@@ -8,7 +8,7 @@ import cv2
 from tqdm import tqdm
 from tensorflow.keras import datasets, layers, Model, utils, optimizers, models
 import matplotlib.pyplot as plt
-
+import json
 
 if __name__ == '__main__':
 
@@ -58,22 +58,18 @@ if __name__ == '__main__':
         img = cv2.imread(img_path)
 
         #Create image and mask patches
-        x_count = 0
-        y_count = 0
+        cols = np.arange(0, num_win_x*win_w, win_w) #get column indices
+        rows = np.arange(0, num_win_y*win_h, win_h) #get row indices
+        for row in rows:
+            for col in cols:
+                win_img = img[col:col+win_w,row:row+win_w,:]/255.0
+                win_mask = mask[col:col+win_w,row:row+win_w]/255.0
 
-        for i in range(num_win_y):
-            for j in range(num_win_x):
-                win_img = img[y_count*win_h:(y_count+1)*win_h,x_count*win_w:(x_count+1)*win_w,:]/255.0
-                win_mask = mask[y_count*win_h:(y_count+1)*win_h,x_count*win_w:(x_count+1)*win_w]/255.0
-                
                 scaled_win_img = cv2.resize(win_img, (scaled_win_w, scaled_win_h))
                 scaled_win_mask = cv2.resize(win_mask, (scaled_win_w, scaled_win_h))
                 
                 X.append(scaled_win_img)
                 y.append(scaled_win_mask)
-                y_count+=1
-            x_count+=1
-            y_count=0
     
     X = np.asarray(X)
     y = np.asarray(y)

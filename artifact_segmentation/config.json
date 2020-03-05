@@ -4,6 +4,7 @@
 	"window_width": 481,
 	"window_height": 481,
 	"model_input_width": 384,
-	"model_input_height": 384
+	"model_input_height": 384,
+	"padding": 1
 }
 
