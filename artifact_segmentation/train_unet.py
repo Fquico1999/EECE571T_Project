@@ -133,7 +133,7 @@ if __name__ == '__main__':
         outputs = layers.Conv2D(1,(1,1), activation='sigmoid')(c9)
 
         model = Model(inputs=[inputs], outputs=[outputs])
-        model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+        model.compile(optimizer=optimizers.Adam(learning_rate=0.0001), loss='binary_crossentropy', metrics=['accuracy'])
 
     else:
         print('Model path specified, loading model')
