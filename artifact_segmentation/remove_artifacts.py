@@ -97,11 +97,22 @@ if __name__ == '__main__':
 
         min_size = 500
 
-        img_o = img.copy()
+        mask_proc = np.zeros([IMG_W,IMG_H])
         #for every component in the image, you keep it only if it's above min_size
         for i in range(0, nb_components):
             if sizes[i] >= min_size:
-                img_o[output == i + 1,:] = [255,255,255]
+                mask_proc[output == i + 1] = 255
+
+        #Close gaps in mask and dilate
+        kernel_c = np.ones((50,50),np.uint8)
+        kernel_d = np.ones((25,25),np.uint8)
+
+        mask_proc = cv2.morphologyEx(mask_proc, cv2.MORPH_CLOSE, kernel_c)
+        mask_proc = cv2.dilate(mask_proc,kernel_d,iterations = 1)
+
+        img_o = img.copy()
+        idx = np.where(mask_proc == 255)
+        img_o[idx] = [255,255,255]
 
         output_path = os.path.join(args['output_folder'],img_name.split('.')[0] + '_artifactless.jpg')
         cv2.imwrite(output_path, img_o)
