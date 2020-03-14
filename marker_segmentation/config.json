@@ -1,0 +1,10 @@
+{
+	"image_width": 2886,
+	"image_height" : 2886,
+	"window_width": 222,
+	"window_height": 222,
+	"model_input_width": 224,
+	"model_input_height": 224,
+	"padding": 1
+}
+
