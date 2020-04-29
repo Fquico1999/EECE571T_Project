@@ -100,7 +100,7 @@ if __name__ == '__main__':
         c2 = layers.Dropout(0.1)(c2)
         c2 = layers.Conv2D(32, (3,3), activation='relu', kernel_initializer='he_normal', padding='same')(c2)
 
-        u1 = layers.Conv2DTranspose(16, (2,2), strides=(2,2), padding='same')(c2)
+        u1 = layers.UpSampling2D((2,2), interpolation='bilinear')(c2)
         u1 = layers.concatenate([u1,c1])
         c3 = layers.Conv2D(16, (3,3), activation='relu', kernel_initializer='he_normal', padding='same')(u1)
         c3 = layers.Dropout(0.1)(c3)
