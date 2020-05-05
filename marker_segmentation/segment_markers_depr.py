@@ -8,18 +8,6 @@ import argparse
 from tqdm import tqdm
 import json
 
-def post_proc(mask, std):
-    ret, thresh = cv2.threshold(mask, std, 255, cv2.THRESH_BINARY)
-    
-    #Close gaps in mask and dilate
-    kernel_c = np.ones((2,2),np.uint8)
-    kernel_d = np.ones((5,5),np.uint8)
-
-    mask_proc = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel_c)
-    mask_proc = cv2.dilate(mask_proc,kernel_d,iterations = 1)
-    return mask_proc
-
-
 if __name__ == '__main__':
 
     #Read configuration file
@@ -32,12 +20,17 @@ if __name__ == '__main__':
     win_w = config['window_width']
     win_h = config['window_height']
 
-    num_win_x = int(IMG_W/win_w)
-    num_win_y = int(IMG_H/win_h)
+    scaled_win_w = config['model_input_width']
+    scaled_win_h = config['model_input_height']
 
-    #Ensure Image size divides evenly by win_w and win_h
-    scaled_img_w = win_w*num_win_x
-    scaled_img_h = win_h*num_win_y
+    padding = config['padding']
+    trim = config['trim']
+
+    padless_win_w = scaled_win_w-2*padding
+    padless_win_h = scaled_win_h-2*padding
+
+    num_win_x = IMG_W/win_w
+    num_win_y = IMG_H/win_h
 
     ap = argparse.ArgumentParser()
     ap.add_argument('-i','--images', type=str, required=True, help='path to image dataset')
@@ -47,16 +40,16 @@ if __name__ == '__main__':
     ap.add_argument('-m','--output_masks',type=bool, required=False, default=False, help='Whether to also output mask')
     args = vars(ap.parse_args())
 
-    #Load model in with custom loss function
     try:
         model = models.load_model(args['model_path'], compile=False) 
-        model.compile(optimizer=optimizers.Adam(learning_rate=0.001), loss=dice_loss, metrics=[dice_loss,'accuracy'])
+        model.compile(optimizer=optimizers.Adam(learning_rate=0.0001), loss=dice_loss, metrics=[dice_loss,'accuracy'])
 
     except Exception as e:
         print(e)
 
     img_names = os.listdir(args['images'])
     
+
     #Data Collection
     for img_name in tqdm(img_names, desc='Segmenting Markers'):
         X = []
@@ -67,16 +60,21 @@ if __name__ == '__main__':
         #Read image
         img = cv2.imread(img_path)
 
-        #Resize image to ensure integer number of patches fit within
-        img_scaled = cv2.resize(img, (scaled_img_w, scaled_img_h))
+        #Ensure image size is IMG_WxIMG_H
+        if img.shape[0:2] != (IMG_W, IMG_H):
+            img = cv2.resize(img, (IMG_W, IMG_H))
 
         #Create image patches
         cols = np.arange(0, num_win_x*win_w, win_w)
         rows = np.arange(0, num_win_y*win_h, win_h)
         for row in rows:
             for col in cols:
-                win_img = img_scaled[col:col+win_w,row:row+win_w,:]/255.0
-                X.append(win_img)
+                win_img = img[col:col+win_w,row:row+win_w,:]/255.0
+
+                padless_win_img = cv2.resize(win_img, (padless_win_w, padless_win_h))
+                scaled_win_img = cv2.copyMakeBorder( padless_win_img, padding, padding, padding, padding, cv2.BORDER_REPLICATE)
+        
+                X.append(scaled_win_img)
     
         X = np.asarray(X)
 
@@ -84,31 +82,39 @@ if __name__ == '__main__':
         y = model.predict(X)
 
         #Create mask
-        mask = np.zeros((num_win_x*win_w, num_win_y*win_h))
+        mask = np.zeros((num_win_x*padless_win_w, num_win_y*padless_win_h))
 
-        cols = np.arange(0, num_win_x*win_w, win_w)
-        rows = np.arange(0, num_win_y*win_h, win_h)
-
-        #Get scaled standard deviation of predictions
-        std = np.std(y)*255.0
+        cols = np.arange(0, num_win_x*padless_win_w, padless_win_w)
+        rows = np.arange(0, num_win_y*padless_win_h, padless_win_h)
 
         for i in range(len(rows)):
             for j in range(len(cols)):
-                patch = y[(i*num_win_x)+j]
+                patch = y[(i*num_win_x)+j][padding+trim:-padding-trim,padding+trim:-padding-trim] #remove padding
                 patch = np.reshape(patch, patch.shape[:2]) #remove last dimension
-                patch = post_proc(patch*255, std)
-                mask[cols[j]:cols[j]+win_w,rows[i]:rows[i]+win_h] = patch
+
+                mask[cols[j]+trim:cols[j]+padless_win_h-trim,rows[i]+trim:rows[i]+padless_win_w-trim] = patch*255
 
         resized_mask = cv2.resize(mask, (IMG_W, IMG_H))
 
-        #Make output image copy
+        int_mask = np.uint8(resized_mask)
+
+        #ret, thresh = cv2.threshold(int_mask, 0.1*np.max(int_mask), 255, cv2.THRESH_BINARY)
+        ret, thresh = cv2.threshold(int_mask, 3*np.std(int_mask), 255, cv2.THRESH_BINARY)
+
+        #Close gaps in mask and dilate
+        kernel_c = np.ones((2,2),np.uint8)
+        kernel_d = np.ones((5,5),np.uint8)
+
+        mask_proc = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel_c)
+        mask_proc = cv2.dilate(mask_proc,kernel_d,iterations = 1)
+
         img_o = img.copy()
-        idx = np.where(resized_mask == 255)
+        idx = np.where(mask_proc == 255)
         img_o[idx] = args['color']
 
         if args['output_masks']:
             output_path = os.path.join(args['output_folder'],img_name.split('.')[0] + '_mask.jpg')
-            cv2.imwrite(output_path, resized_mask)
+            cv2.imwrite(output_path, mask_proc)
 
         output_path = os.path.join(args['output_folder'],img_name.split('.')[0] + '_labelled.jpg')
         cv2.imwrite(output_path, img_o)
