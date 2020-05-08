@@ -10,6 +10,18 @@ from tensorflow.keras import datasets, layers, Model, utils, optimizers, models
 from tensorflow.keras.layers import Conv2D,concatenate, Activation,UpSampling2D, BatchNormalization, MaxPooling2D, Dropout,Conv2DTranspose
 import json
 from tqdm import tqdm
+import pickle
+
+
+def str2bool(v):
+    if isinstance(v, bool):
+       return v
+    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected.')
 
 def dice_loss(y_true, y_pred):
   numerator = 2 * tf.reduce_sum(y_true * y_pred, axis=-1)
@@ -105,49 +117,96 @@ if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('-i','--images', type=str, required=True, help='path to image dataset')
     ap.add_argument('-m', '--masks', type=str, required=True, help='path to mask dataset')
+    ap.add_argument('-c','--collect_data', type=str2bool, required=True, help='Whether to create dataset or use existing data.')
     ap.add_argument('-e', '--epochs', type=int, required=False, default=50, help='number of epochs to train on')
     ap.add_argument('-b', '--num_batches', type=int, required=False, default=16, help='number of batches to train on')
     ap.add_argument('-mp', '--model_path', type=str, required=False, default=None, help='path of model to train')
     ap.add_argument('-vs', '--validation_split', type=float, required=False, default=0.15, help='Training validation_split')
-    ap.add_argument('-ri', '--rename_images', type=bool, required=False, default=False, help='Whether to rename images to lowercase for mask match')
+    ap.add_argument('-ri', '--rename_images', type=str2bool, required=False, default=False, help='Whether to rename images to lowercase for mask match')
     args = vars(ap.parse_args())
 
-    img_names = os.listdir(args['images'])
-    mask_names = os.listdir(args['masks'])
+    print(args['collect_data'])
+    if args['collect_data']:
 
-    X = []
-    y = []
-
-    #Because of annotation software, there may be a mismatch in naming
-    if args['rename_images']:
-        for img_name in img_names:
-            img_path_curr = os.path.join(args['images'], img_name)
-            img_path_lower = os.path.join(args['images'], img_name.lower())
-            os.rename(img_path_curr, img_path_lower)
-        #After renaming, get img_names again
         img_names = os.listdir(args['images'])
+        mask_names = os.listdir(args['masks'])
 
-    #Data Collection
-    for i in tqdm(range(len(img_names)), desc='Collecting Data'):
+        X = []
+        y = []
 
-        #Obtain mask and image paths
-        mask_path = os.path.join(args['masks'], mask_names[i])
-        img_name = mask_names[i].split('_mask')[0]+'.jpg'
-        assert img_name in img_names, 'Expected {} in {}, if image filename is uppercase, use --ri = True'.format(img_name, args['images'])
-        img_path = os.path.join(args['images'], img_name)
+        #Because of annotation software, there may be a mismatch in naming
+        if args['rename_images']:
+            for img_name in img_names:
+                img_path_curr = os.path.join(args['images'], img_name)
+                img_path_lower = os.path.join(args['images'], img_name.lower())
+                os.rename(img_path_curr, img_path_lower)
+            #After renaming, get img_names again
+            img_names = os.listdir(args['images'])
 
-        #Read mask and img in
-        mask = cv2.imread(mask_path, 0)
-        ret, thresh = cv2.threshold(mask, 1, 255, cv2.THRESH_BINARY)
-        img = cv2.imread(img_path)
-        scaled_img = cv2.resize(img, (128, 128))/255.0
-        scaled_mask = cv2.resize(thresh, (128, 128))/255.0
+        #Data Collection
+        for i in tqdm(range(len(img_names)), desc='Collecting Data'):
 
-        X.append(scaled_img)
-        y.append(scaled_mask)
-    
-    X = np.asarray(X)
-    y = np.asarray(y)
+            #Obtain mask and image paths
+            mask_path = os.path.join(args['masks'], mask_names[i])
+            img_name = mask_names[i].split('_mask')[0]+'.jpg'
+            assert img_name in img_names, 'Expected {} in {}, if image filename is uppercase, use --ri = True'.format(img_name, args['images'])
+            img_path = os.path.join(args['images'], img_name)
+
+            #Read mask and img in
+            mask = cv2.imread(mask_path, 0)
+            ret, thresh = cv2.threshold(mask, 1, 255, cv2.THRESH_BINARY)
+            img = cv2.imread(img_path)
+            scaled_img = cv2.resize(img, (128, 128))/255.0
+            scaled_mask = cv2.resize(thresh, (128, 128))/255.0
+
+            cv2.imshow('Image', scaled_img)
+            cv2.waitKey(300)
+            cv2.imshow('Mask', scaled_mask)
+            cv2.waitKey(300)
+
+            X.append(scaled_img)
+            y.append(scaled_mask)
+        
+        cv2.destroyAllWindows()
+        X = np.asarray(X)
+        y = np.asarray(y)
+
+        #reshape y
+        if len(y.shape) < 4:
+            y = np.expand_dims(y, axis=3)
+
+        #Shuffle
+        idx = np.random.permutation(len(X))
+
+        #Split into train and test
+        #Do this instead of validation split because if we want to train further
+        #we make sure we dont use the same testing data for training
+        split = int(args['validation_split']*len(X))
+        X_train = X[:-split]
+        y_train = y[:-split]
+
+        X_test = X[-split:]
+        y_test = y[-split:]
+
+        print('Saving Data\n')
+        pickle.dump(X_train, open("X_train", "wb"))
+        pickle.dump(y_train, open("y_train", "wb"))
+
+        pickle.dump(X_test, open("X_test", "wb"))
+        pickle.dump(y_test, open("y_test", "wb"))
+        print('Data Saved\n\n')
+
+    else:
+        print('Loading Data\n')
+        X_train = pickle.load( open( "X_train", "rb" ) )
+        y_train = pickle.load( open( "y_train", "rb" ) )
+
+        X_test = pickle.load( open( "X_test", "rb" ) )
+        y_test = pickle.load( open( "y_test", "rb" ) )
+
+        print('Data Loaded\n\n')
+
+    print('Training on %i samples\nTesting on %i samples\n\n' %(len(X_train), len(X_test)))
 
     if not args['model_path']:
         print('No model path given, creating new model')
@@ -171,16 +230,7 @@ if __name__ == '__main__':
         except Exception as e:
             print(e)
 
-    #reshape y
-    if len(y.shape) < 4:
-        y = np.expand_dims(y, axis=3)
-
-    #Shuffle
-    idx = np.random.permutation(len(X))
-    X = X[idx]
-    y = y[idx]
-
-    history = model.fit(X, y, epochs=args['epochs'], batch_size=args['num_batches'], validation_split=args['validation_split'])
+    history = model.fit(X_train, y_train, validation_data=[X_test,y_test], epochs=args['epochs'], batch_size=args['num_batches'])
 
     model.save('unet_model')
 

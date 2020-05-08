@@ -3,6 +3,7 @@
 import os
 import numpy as np
 import cv2
+import tensorflow as tf
 from tensorflow.keras import models
 import argparse
 from tqdm import tqdm
@@ -31,6 +32,16 @@ if __name__ == '__main__':
 
     win_w = config['window_width']
     win_h = config['window_height']
+
+    padding = config['padding']
+
+    padless_win_w = win_w-2*padding
+    padless_win_h = win_h-2*padding
+
+    num_win_x = int(IMG_W/win_w)
+    num_win_y = int(IMG_H/win_h)
+
+    std_thresh = config['std_thresh']
 
     num_win_x = int(IMG_W/win_w)
     num_win_y = int(IMG_H/win_h)
@@ -76,7 +87,11 @@ if __name__ == '__main__':
         for row in rows:
             for col in cols:
                 win_img = img_scaled[col:col+win_w,row:row+win_w,:]/255.0
-                X.append(win_img)
+                
+                padless_win_img = cv2.resize(win_img, (padless_win_w, padless_win_h))
+                scaled_win_img = cv2.copyMakeBorder( padless_win_img, padding, padding, padding, padding, cv2.BORDER_REPLICATE)
+        
+                X.append(scaled_win_img)
     
         X = np.asarray(X)
 
@@ -84,20 +99,20 @@ if __name__ == '__main__':
         y = model.predict(X)
 
         #Create mask
-        mask = np.zeros((num_win_x*win_w, num_win_y*win_h))
+        mask = np.zeros((num_win_x*padless_win_w, num_win_y*padless_win_h))
 
-        cols = np.arange(0, num_win_x*win_w, win_w)
-        rows = np.arange(0, num_win_y*win_h, win_h)
+        cols = np.arange(0, num_win_x*padless_win_w, padless_win_w)
+        rows = np.arange(0, num_win_y*padless_win_h, padless_win_h)
 
         #Get scaled standard deviation of predictions
         std = np.std(y)*255.0
 
         for i in range(len(rows)):
             for j in range(len(cols)):
-                patch = y[(i*num_win_x)+j]
-                patch = np.reshape(patch, patch.shape[:2]) #remove last dimension
-                patch = post_proc(patch*255, std)
-                mask[cols[j]:cols[j]+win_w,rows[i]:rows[i]+win_h] = patch
+                patch = y[(i*num_win_x)+j][padding:-padding,padding:-padding] #Remove padding
+                patch = np.reshape(patch, (padless_win_w, padless_win_h)) #remove last dimension
+                patch = post_proc(patch*255, max(std_thresh, std))
+                mask[cols[j]:cols[j]+padless_win_w,rows[i]:rows[i]+padless_win_h] = patch
 
         resized_mask = cv2.resize(mask, (IMG_W, IMG_H))
 
